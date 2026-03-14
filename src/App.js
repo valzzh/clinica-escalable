@@ -89,6 +89,19 @@ function Dashboard({user,perfil}){
   async function guardarSesionFecha(sesId,fields){const{data}=await supabase.from('sesiones').update(fields).eq('id',sesId).select().single();if(data)setSesiones(prev=>prev.map(s=>s.id===sesId?data:s))}
   async function guardarLog(){if(!logForm.titulo.trim())return;await supabase.from('coaching_log').insert([{...logForm,clienta_id:c.id}]);setShowLogForm(false);setLogForm({sesion_numero:'',titulo:'',fecha:'',link_fathom:'',notas:'',tareas_extra:''});await loadData(c.id)}
   async function deleteLog(id){await supabase.from('coaching_log').delete().eq('id',id);setLogs(prev=>prev.filter(l=>l.id!==id))}
+  async function eliminarClienta(){
+    const confirmado=window.confirm('¿Estás segura de que quieres eliminar a '+c.nombre+'?\n\nEsto eliminará todos sus datos: tareas, sesiones, entregables y coaching log.\n\nEsta acción no se puede deshacer.')
+    if(!confirmado)return
+    await Promise.all([
+      supabase.from('tareas').delete().eq('clienta_id',c.id),
+      supabase.from('sesiones').delete().eq('clienta_id',c.id),
+      supabase.from('entregables').delete().eq('clienta_id',c.id),
+      supabase.from('coaching_log').delete().eq('clienta_id',c.id),
+    ])
+    await supabase.from('clientas').delete().eq('id',c.id)
+    setView('lista');setC(null);setNav('dashboard')
+    await loadClientas()
+  }
   async function editarTarea(id,texto,responsable){const{data}=await supabase.from('tareas').update({texto,responsable}).eq('id',id).select().single();if(data)setTareas(prev=>prev.map(t=>t.id===id?data:t));setEditTarea(null)}
   async function agregarTarea(){if(!nuevaTarea.trim())return;const fase=c.fase_activa;const orden=tareas.filter(t=>t.fase===fase).length;if(aplicarA==='todas'){const{data:otras}=await supabase.from('clientas').select('id').eq('fase_activa',fase).neq('id',c.id);if(otras?.length)await supabase.from('tareas').insert(otras.map(x=>({clienta_id:x.id,fase,texto:nuevaTarea,completada:false,orden,responsable:nuevaResponsable})))}const{data}=await supabase.from('tareas').insert([{clienta_id:c.id,fase,texto:nuevaTarea,completada:false,orden,responsable:nuevaResponsable}]).select().single();if(data)setTareas(prev=>[...prev,data]);setNuevaTarea('')}
   async function eliminarTarea(id){await supabase.from('tareas').delete().eq('id',id);setTareas(prev=>prev.filter(t=>t.id!==id))}
@@ -126,7 +139,7 @@ function Dashboard({user,perfil}){
       {showLogPrompt&&(<div className='modal-overlay'><div className='modal'><div className='modal-title'>Sesión completada</div><p style={{fontSize:'14px',color:'var(--text-muted)',marginBottom:'18px',lineHeight:'1.6'}}>¿Quieres registrar las notas en el Coaching Log?</p><div className='modal-actions'><button className='btn-cancel' onClick={()=>setShowLogPrompt(false)}>Ahora no</button><button className='btn-green' onClick={()=>{setShowLogPrompt(false);setNav('log');setShowLogForm(true)}}>Ir al Coaching Log</button></div></div></div>)}
       <div className='topbar'>
         <div className='topbar-left'><div className='avatar'>{ini}</div><div className='client-meta'><div className='client-name'>{c.nombre}</div><div className='client-sub'>{c.profesion}{c.especialidad?' · '+c.especialidad:''}{c.pais?' · '+c.pais:''}</div><div className='badges'><span className='badge badge-green'>En proceso</span><span className='badge badge-purple'>{fl}</span></div></div></div>
-        <div className='topbar-right'>{!IS_CLIENT_VIEW&&(<><button className='btn-edit' onClick={()=>setEditMode(!editMode)}>{editMode?'Cerrar':'Editar fase'}</button><button className={'btn-copy-link'+(copied?' copied':'')} onClick={copyClientLink}>{copied?'Copiado':'Copiar link'}</button><button className='btn-send-access' onClick={enviarAcceso}>Enviar acceso</button></>)}</div>
+        <div className='topbar-right'>{!IS_CLIENT_VIEW&&(<><button className='btn-edit' onClick={()=>setEditMode(!editMode)}>{editMode?'Cerrar':'Editar fase'}</button><button className={'btn-copy-link'+(copied?' copied':'')} onClick={copyClientLink}>{copied?'Copiado':'Copiar link'}</button><button className='btn-send-access' onClick={enviarAcceso}>Enviar acceso</button><button className='btn-delete-client' onClick={eliminarClienta} title='Eliminar clienta'>🗑️</button></>)}</div>
       </div>
       {proxSesion&&(<div className={'prox-sesion-banner'+(IS_CLIENT_VIEW?' client-banner':'')}>
         <div className='prox-info'><span className='prox-label'>Próxima sesión</span><span className='prox-title'>Sesión {proxSesion.numero} — {proxSesion.titulo}</span>{proxSesion.fecha_agendada?<span className='prox-fecha'>{new Date(proxSesion.fecha_agendada+'T12:00:00').toLocaleDateString('es-MX',{weekday:'long',day:'numeric',month:'long'})}{proxSesion.hora&&' · '+proxSesion.hora}</span>:<span className='prox-sin-fecha'>{IS_CLIENT_VIEW?'Valeria te contactará pronto':'Sin fecha — agendala en Sesiones'}</span>}</div>
