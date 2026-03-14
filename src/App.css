@@ -119,3 +119,13 @@ textarea:focus{border-color:var(--green)}
 .quote-box{border-left:3px solid var(--purple-mid);background:var(--purple-light);border-radius:0 6px 6px 0;padding:12px 14px;margin-top:12px}
 .quote-text{font-family:'DM Serif Display',serif;font-size:14px;color:var(--purple);line-height:1.6;font-style:italic}
 .quote-attr{font-size:11px;color:var(--purple);opacity:.6;margin-top:5px;font-weight:500}
+.card-link{font-size:11px;color:var(--green);margin-top:8px;opacity:.7}
+.topbar-right{display:flex;flex-direction:column;align-items:flex-end;gap:8px}
+.link-box{display:flex;align-items:center;gap:7px;background:var(--gray);border-radius:6px;padding:7px 10px;font-size:12px}
+.link-label{color:var(--text-muted)}
+.link-code{font-family:monospace;font-size:11px;color:var(--purple);background:var(--purple-light);padding:2px 6px;border-radius:4px}
+.btn-copy{background:var(--green);color:white;border:none;padding:4px 10px;border-radius:5px;font-size:11px;font-weight:500;cursor:pointer}
+.btn-session{background:var(--purple-light);color:var(--purple);border:1px solid var(--purple-mid);padding:6px 12px;border-radius:6px;font-family:'DM Sans',sans-serif;font-size:12px;font-weight:500;cursor:pointer}
+.task-item.clickable{cursor:pointer}
+.client-message{font-size:14px;color:var(--text-muted);line-height:1.8;padding:8px 0}
+.client-message strong{color:var(--green);font-weight:500}
