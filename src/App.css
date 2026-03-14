@@ -187,7 +187,7 @@ textarea:focus{border-color:var(--green)}
 /* Topbar right */
 .topbar-right{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end}
 
-/* Banner prÃÂÃÂ³xima sesiÃÂÃÂ³n */
+/* Banner prÃÂÃÂÃÂÃÂ³xima sesiÃÂÃÂÃÂÃÂ³n */
 .prox-sesion-banner{background:linear-gradient(135deg,var(--green-light),var(--purple-light));border-radius:12px;padding:16px 20px;margin-bottom:18px;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;border:1px solid var(--border)}
 .client-banner{background:linear-gradient(135deg,#E1F5EE,#EEEDFE)}
 .prox-info{display:flex;flex-direction:column;gap:3px}
@@ -268,3 +268,6 @@ textarea:focus{border-color:var(--green)}
 
 .btn-send-access{font-size:12px;font-weight:500;padding:7px 14px;border-radius:7px;border:none;background:#854F0B;color:#FAEEDA;cursor:pointer;white-space:nowrap;transition:all .15s}
 .btn-send-access:hover{background:#6b3f09;color:white}
+
+.btn-delete-client{font-size:16px;background:none;border:1px solid #fde8e8;color:#c0392b;padding:6px 10px;border-radius:7px;cursor:pointer;transition:all .15s}
+.btn-delete-client:hover{background:#fde8e8;border-color:#c0392b}
