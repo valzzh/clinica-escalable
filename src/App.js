@@ -74,10 +74,15 @@ const ED = {
 
 const Check = () => <svg width='10' height='8' viewBox='0 0 10 8' fill='none'><path d='M1 4L3.5 6.5L9 1' stroke='white' strokeWidth='1.5' strokeLinecap='round'/></svg>
 
+// Detectar si es vista de clienta (URL tiene ?clienta=ID)
+const params = new URLSearchParams(window.location.search)
+const CLIENTA_ID = params.get('clienta')
+const IS_CLIENT_VIEW = !!CLIENTA_ID
+
 export default function App() {
-  const [view,setView] = useState('lista')
+  const [view,setView] = useState(IS_CLIENT_VIEW ? 'dashboard' : 'lista')
   const [clientas,setClientas] = useState([])
-  const [selId,setSelId] = useState(null)
+  const [selId,setSelId] = useState(IS_CLIENT_VIEW ? CLIENTA_ID : null)
   const [c,setC] = useState(null)
   const [tareas,setTareas] = useState([])
   const [sesiones,setSesiones] = useState([])
@@ -89,8 +94,8 @@ export default function App() {
   const [showForm,setShowForm] = useState(false)
   const [form,setForm] = useState({nombre:'',profesion:'',especialidad:'',pais:'México',fase_activa:'Analisis'})
 
-  useEffect(()=>{loadClientas()},[]) // eslint-disable-line
-  useEffect(()=>{if(selId)loadData(selId)},[selId]) // eslint-disable-line
+  useEffect(()=>{ if(!IS_CLIENT_VIEW) loadClientas() },[]) // eslint-disable-line
+  useEffect(()=>{ if(selId) loadData(selId) },[selId]) // eslint-disable-line
 
   async function loadClientas(){
     setLoading(true)
@@ -129,11 +134,13 @@ export default function App() {
   }
 
   async function toggleTarea(t){
+    if(IS_CLIENT_VIEW) return
     const {data}=await supabase.from('tareas').update({completada:!t.completada}).eq('id',t.id).select().single()
     if(data)setTareas(prev=>prev.map(x=>x.id===t.id?data:x))
   }
 
   async function saveNota(nota){
+    if(IS_CLIENT_VIEW) return
     await supabase.from('clientas').update({notas_internas:nota}).eq('id',c.id)
     setC(prev=>({...prev,notas_internas:nota}))
   }
@@ -150,6 +157,15 @@ export default function App() {
     await loadData(c.id);await loadClientas();setSaving(false)
   }
 
+  async function avanzarSesion(){
+    const proxima = sesiones.find(s=>s.estado==='Proxima')
+    if(!proxima) return
+    await supabase.from('sesiones').update({estado:'Completada'}).eq('id',proxima.id)
+    const sig = sesiones.find(s=>s.numero===proxima.numero+1)
+    if(sig) await supabase.from('sesiones').update({estado:'Proxima'}).eq('id',sig.id)
+    await loadData(c.id)
+  }
+
   const tf=tareas.filter(t=>t.fase===c?.fase_activa)
   const pct=c?PCT[c.fase_activa]||0:0
   const fl=c?FL[c.fase_activa]||'':''
@@ -157,6 +173,7 @@ export default function App() {
 
   if(loading&&view==='lista')return <div className='loading'>Cargando...</div>
 
+  // ── LISTA DE CLIENTAS (solo admin) ──
   if(view==='lista')return(
     <div className='lista-view'>
       <div className='lista-header'>
@@ -198,7 +215,7 @@ export default function App() {
               <span className='tag tag-green'>En proceso</span>
               <span className='tag tag-purple'>{FL[x.fase_activa]}</span>
             </div>
-            <div className='card-country'>{x.pais}</div>
+            <div className='card-link'>Ver enlace de clienta →</div>
           </div>
         ))}
       </div>
@@ -208,26 +225,35 @@ export default function App() {
   if(loading)return <div className='loading'>Cargando...</div>
   if(!c)return null
 
+  // ── DASHBOARD (admin o clienta) ──
   return(
     <div className='layout'>
       <nav className='sidebar'>
-        <div className='brand'>Clínica Escalable™<span>Portal de clientas</span></div>
-        <button className='nav-back' onClick={()=>{setView('lista');setC(null)}}>← Todas las clientas</button>
+        <div className='brand'>Clínica Escalable™<span>{IS_CLIENT_VIEW?'Tu programa':'Portal de clientas'}</span></div>
+        {!IS_CLIENT_VIEW&&<button className='nav-back' onClick={()=>{setView('lista');setC(null)}}>← Todas las clientas</button>}
         <div className='section-label'>Secciones</div>
         {['dashboard','tareas','sesiones','entregables'].map(s=>(
           <button key={s} className={'nav-item'+(nav===s?' active':'')} onClick={()=>setNav(s)}>
             {s==='dashboard'?'◈':s==='tareas'?'✦':s==='sesiones'?'◎':'◇'} {s.charAt(0).toUpperCase()+s.slice(1)}
           </button>
         ))}
-        <div className='sidebar-bottom'>{saving?'⏳ Guardando...':'✓ Guardado automático'}</div>
+        {!IS_CLIENT_VIEW&&(
+          <div className='sidebar-bottom'>{saving?'⏳ Guardando...':'✓ Guardado automático'}</div>
+        )}
+        {IS_CLIENT_VIEW&&(
+          <div className='sidebar-bottom'>Tu progreso se actualiza en tiempo real</div>
+        )}
       </nav>
       <main className='main'>
-        {editMode&&(
+        {!IS_CLIENT_VIEW&&editMode&&(
           <div className='edit-bar'>
             <label>Fase activa:</label>
             <select value={c.fase_activa} onChange={e=>cambiarFase(e.target.value)} disabled={saving}>
               {FASES.map(f=><option key={f} value={f}>{FL[f]}</option>)}
             </select>
+            <button className='btn-session' onClick={avanzarSesion} disabled={saving}>
+              ✓ Completar sesión próxima
+            </button>
             <div className='flex1'/>
             <button className='btn-green' onClick={()=>setEditMode(false)}>Cerrar edición</button>
           </div>
@@ -244,7 +270,16 @@ export default function App() {
               </div>
             </div>
           </div>
-          <button className='btn-edit' onClick={()=>setEditMode(!editMode)}>{editMode?'Cerrar':'✏️ Editar'}</button>
+          {!IS_CLIENT_VIEW&&(
+            <div className='topbar-right'>
+              <button className='btn-edit' onClick={()=>setEditMode(!editMode)}>{editMode?'Cerrar':'✏️ Editar'}</button>
+              <div className='link-box'>
+                <span className='link-label'>Link de clienta:</span>
+                <code className='link-code'>?clienta={c.id}</code>
+                <button className='btn-copy' onClick={()=>navigator.clipboard.writeText(window.location.origin+'/?clienta='+c.id)}>Copiar</button>
+              </div>
+            </div>
+          )}
         </div>
         <div className='progress-section'>
           <div className='progress-header'><span className='progress-title'>Avance del programa</span><span className='progress-pct'>{pct}%</span></div>
@@ -268,7 +303,7 @@ export default function App() {
               <div className='card-title'>Tareas — {fl.split('— ')[1]}</div>
               <div className='task-list'>
                 {tf.map(t=>(
-                  <div key={t.id} className='task-item' onClick={()=>toggleTarea(t)}>
+                  <div key={t.id} className={'task-item'+(IS_CLIENT_VIEW?'':' clickable')} onClick={()=>!IS_CLIENT_VIEW&&toggleTarea(t)}>
                     <div className={'task-check '+(t.completada?'check-done':'check-pending')}>{t.completada&&<Check/>}</div>
                     <div className='task-body'><div className={'task-text '+(t.completada?'done':'')}>{t.texto}</div>{t.nota&&<div className='task-note'>{t.nota}</div>}</div>
                     <span className={'task-badge badge-'+(t.completada?'green':'purple')}>{t.completada?'Lista':'Pendiente'}</span>
@@ -306,8 +341,14 @@ export default function App() {
               </div>
             </div>
             <div className='card'>
-              <div className='card-title'>Notas internas</div>
-              <textarea defaultValue={c.notas_internas||''} placeholder='Notas de sesión...' onBlur={e=>saveNota(e.target.value)}/>
+              {!IS_CLIENT_VIEW&&<><div className='card-title'>Notas internas (solo tú las ves)</div>
+              <textarea defaultValue={c.notas_internas||''} placeholder='Notas de sesión...' onBlur={e=>saveNota(e.target.value)}/></>}
+              {IS_CLIENT_VIEW&&<><div className='card-title'>Tu avance</div>
+              <div className='client-message'>
+                <p>Estás en <strong>{fl}</strong>.</p>
+                <p>Has completado {tf.filter(t=>t.completada).length} de {tf.length} tareas de esta fase.</p>
+                <p>Tu próxima sesión está por agendar — Valeria te contactará pronto.</p>
+              </div></>}
             </div>
           </div>
         </>)}
@@ -316,14 +357,13 @@ export default function App() {
             <div className='card-title'>Tareas — {fl}</div>
             <div className='task-list'>
               {tf.map(t=>(
-                <div key={t.id} className='task-item' onClick={()=>toggleTarea(t)}>
+                <div key={t.id} className={'task-item'+(IS_CLIENT_VIEW?'':' clickable')} onClick={()=>!IS_CLIENT_VIEW&&toggleTarea(t)}>
                   <div className={'task-check '+(t.completada?'check-done':'check-pending')}>{t.completada&&<Check/>}</div>
                   <div className='task-body'><div className={'task-text '+(t.completada?'done':'')}>{t.texto}</div>{t.nota&&<div className='task-note'>{t.nota}</div>}</div>
                   <span className={'task-badge badge-'+(t.completada?'green':'purple')}>{t.completada?'Lista':'Pendiente'}</span>
                 </div>
               ))}
             </div>
-            <div className='phase-note'>Las fases se desbloquean al cambiar la fase activa desde el modo edición.</div>
           </div>
         )}
         {nav==='sesiones'&&(
