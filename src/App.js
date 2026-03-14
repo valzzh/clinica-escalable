@@ -15,21 +15,28 @@ const IS_CLIENT_VIEW=!!CLIENTA_ID
 
 function useDebounce(fn,delay){
   const timer=useRef(null)
-  return useCallback((...args)=>{
-    clearTimeout(timer.current)
-    timer.current=setTimeout(()=>fn(...args),delay)
-  },[fn,delay]) // eslint-disable-line
+  return useCallback((...args)=>{clearTimeout(timer.current);timer.current=setTimeout(()=>fn(...args),delay)},[fn,delay]) // eslint-disable-line
 }
 
 function CircleProgress({pct}){
   const r=40,c=2*Math.PI*r,dash=c*(pct/100)
   return(<svg width='100' height='100' viewBox='0 0 100 100'>
     <circle cx='50' cy='50' r={r} fill='none' stroke='#e8e7e0' strokeWidth='8'/>
-    <circle cx='50' cy='50' r={r} fill='none' stroke='#1D6B5A' strokeWidth='8'
-      strokeDasharray={`${dash} ${c}`} strokeDashoffset={c*0.25} strokeLinecap='round'
-      style={{transition:'stroke-dasharray .5s ease'}}/>
-    <text x='50' y='54' textAnchor='middle' fontSize='18' fontWeight='500' fill='#1a1a18'>{pct}%</text>
+    <circle cx='50' cy='50' r={r} fill='none' stroke='#1D6B5A' strokeWidth='8' strokeDasharray={dash+' '+(c-dash)} strokeDashoffset={c*0.25} strokeLinecap='round' style={{transition:'stroke-dasharray .5s ease'}}/>
+    <text x='50' y='55' textAnchor='middle' fontSize='18' fontWeight='500' fill='#1a1a18'>{pct}%</text>
   </svg>)
+}
+
+function makeCalendarLink(s,nombreClienta){
+  if(!s.fecha_agendada)return null
+  const fecha=s.fecha_agendada.replace(/-/g,'')
+  const hora=(s.hora||'10:00').replace(':','')
+  const start=fecha+'T'+hora+'00'
+  const endH=String(parseInt(hora.slice(0,2))+1).padStart(2,'0')
+  const end=fecha+'T'+endH+hora.slice(2)+'00'
+  const title=encodeURIComponent('Sesión '+s.numero+' — '+s.titulo+' | '+nombreClienta)
+  const details=encodeURIComponent((s.link_meet?'Google Meet: '+s.link_meet+'\n\n':'')+'Clínica Escalable™ — Programa de 90 días')
+  return 'https://calendar.google.com/calendar/render?action=TEMPLATE&text='+title+'&dates='+start+'/'+end+'&details='+details+(s.link_meet?'&location='+encodeURIComponent(s.link_meet):'')
 }
 
 export default function App(){
@@ -50,16 +57,14 @@ export default function App(){
   const [logForm,setLogForm]=useState({sesion_numero:'',titulo:'',fecha:'',link_fathom:'',notas:'',tareas_extra:''})
   const [form,setForm]=useState({nombre:'',profesion:'',especialidad:'',pais:'México',fase_activa:'Analisis'})
   const [copied,setCopied]=useState(false)
+  const [editTarea,setEditTarea]=useState(null)
+  const [nuevaTarea,setNuevaTarea]=useState('')
+  const [aplicarA,setAplicarA]=useState('solo')
 
   useEffect(()=>{if(!IS_CLIENT_VIEW)loadClientas()},[]) // eslint-disable-line
   useEffect(()=>{if(selId)loadData(selId)},[selId]) // eslint-disable-line
 
-  async function loadClientas(){
-    setLoading(true)
-    const{data}=await supabase.from('clientas').select('*').order('created_at',{ascending:false})
-    setClientas(data||[])
-    setLoading(false)
-  }
+  async function loadClientas(){setLoading(true);const{data}=await supabase.from('clientas').select('*').order('created_at',{ascending:false});setClientas(data||[]);setLoading(false)}
   async function loadData(id){
     setLoading(true)
     const[rc,rt,rs,re,rl]=await Promise.all([
@@ -73,19 +78,9 @@ export default function App(){
     setLoading(false)
   }
   async function crearClienta(){
-    if(!form.nombre.trim())return
-    setSaving(true)
+    if(!form.nombre.trim())return;setSaving(true)
     const{data:n}=await supabase.from('clientas').insert([{...form,sesiones_completadas:0}]).select().single()
-    if(n){
-      const f=n.fase_activa
-      await Promise.all([
-        supabase.from('tareas').insert((TD[f]||[]).map((x,i)=>({clienta_id:n.id,fase:f,texto:x.t,nota:x.n||null,completada:false,orden:i}))),
-        supabase.from('sesiones').insert(SD.map(s=>({...s,clienta_id:n.id}))),
-        supabase.from('entregables').insert((ED[f]||[]).map((e,i)=>({...e,clienta_id:n.id,fase:f,orden:i}))),
-      ])
-      setShowForm(false);setForm({nombre:'',profesion:'',especialidad:'',pais:'México',fase_activa:'Analisis'})
-      await loadClientas();setSelId(n.id);setView('dashboard')
-    }
+    if(n){const f=n.fase_activa;await Promise.all([supabase.from('tareas').insert((TD[f]||[]).map((x,i)=>({clienta_id:n.id,fase:f,texto:x.t,nota:x.n||null,completada:false,orden:i}))),supabase.from('sesiones').insert(SD.map(s=>({...s,clienta_id:n.id}))),supabase.from('entregables').insert((ED[f]||[]).map((e,i)=>({...e,clienta_id:n.id,fase:f,orden:i})))]);setShowForm(false);setForm({nombre:'',profesion:'',especialidad:'',pais:'México',fase_activa:'Analisis'});await loadClientas();setSelId(n.id);setView('dashboard')}
     setSaving(false)
   }
   async function toggleTarea(t){
@@ -93,72 +88,69 @@ export default function App(){
     const{data}=await supabase.from('tareas').update({completada:!t.completada}).eq('id',t.id).select().single()
     if(data)setTareas(prev=>prev.map(x=>x.id===t.id?data:x))
   }
-  const saveNotaDebounced=useDebounce(async(nota)=>{
-    await supabase.from('clientas').update({notas_internas:nota}).eq('id',c.id)
-    setSaving(false)
-  },1000)
+  const saveNotaDebounced=useDebounce(async(nota)=>{await supabase.from('clientas').update({notas_internas:nota}).eq('id',c.id);setSaving(false)},1000)
   function handleNotaChange(v){setSaving(true);setC(prev=>({...prev,notas_internas:v}));saveNotaDebounced(v)}
-  async function updateEntregableEstado(id,estado){
-    const{data}=await supabase.from('entregables').update({estado}).eq('id',id).select().single()
-    if(data)setEntregables(prev=>prev.map(e=>e.id===id?data:e))
-  }
-  async function saveEntregableUrl(id,url){
-    const{data}=await supabase.from('entregables').update({url}).eq('id',id).select().single()
-    if(data)setEntregables(prev=>prev.map(e=>e.id===id?data:e))
-  }
+  async function updateEntregableEstado(id,estado){const{data}=await supabase.from('entregables').update({estado}).eq('id',id).select().single();if(data)setEntregables(prev=>prev.map(e=>e.id===id?data:e))}
+  async function saveEntregableUrl(id,url){const{data}=await supabase.from('entregables').update({url}).eq('id',id).select().single();if(data)setEntregables(prev=>prev.map(e=>e.id===id?data:e))}
   async function cambiarFase(f){
-    setSaving(true)
-    await supabase.from('clientas').update({fase_activa:f}).eq('id',c.id)
+    setSaving(true);await supabase.from('clientas').update({fase_activa:f}).eq('id',c.id)
     await supabase.from('tareas').delete().eq('clienta_id',c.id)
     await supabase.from('entregables').delete().eq('clienta_id',c.id)
-    await Promise.all([
-      supabase.from('tareas').insert((TD[f]||[]).map((x,i)=>({clienta_id:c.id,fase:f,texto:x.t,nota:x.n||null,completada:false,orden:i}))),
-      supabase.from('entregables').insert((ED[f]||[]).map((e,i)=>({...e,clienta_id:c.id,fase:f,orden:i}))),
-    ])
+    await Promise.all([supabase.from('tareas').insert((TD[f]||[]).map((x,i)=>({clienta_id:c.id,fase:f,texto:x.t,nota:x.n||null,completada:false,orden:i}))),supabase.from('entregables').insert((ED[f]||[]).map((e,i)=>({...e,clienta_id:c.id,fase:f,orden:i})))])
     await loadData(c.id);await loadClientas();setSaving(false)
   }
   async function avanzarSesion(){
-    const prox=sesiones.find(s=>s.estado==='Proxima')
-    if(!prox)return
+    const prox=sesiones.find(s=>s.estado==='Proxima');if(!prox)return
     await supabase.from('sesiones').update({estado:'Completada'}).eq('id',prox.id)
     const sig=sesiones.find(s=>s.numero===prox.numero+1)
     if(sig)await supabase.from('sesiones').update({estado:'Proxima'}).eq('id',sig.id)
     await loadData(c.id)
   }
+  async function guardarSesionFecha(sesId,fields){
+    const{data}=await supabase.from('sesiones').update(fields).eq('id',sesId).select().single()
+    if(data)setSesiones(prev=>prev.map(s=>s.id===sesId?data:s))
+  }
   async function guardarLog(){
     if(!logForm.titulo.trim())return
     await supabase.from('coaching_log').insert([{...logForm,clienta_id:c.id}])
-    setShowLogForm(false)
-    setLogForm({sesion_numero:'',titulo:'',fecha:'',link_fathom:'',notas:'',tareas_extra:''})
+    setShowLogForm(false);setLogForm({sesion_numero:'',titulo:'',fecha:'',link_fathom:'',notas:'',tareas_extra:''})
     await loadData(c.id)
   }
-  async function deleteLog(id){
-    await supabase.from('coaching_log').delete().eq('id',id)
-    setLogs(prev=>prev.filter(l=>l.id!==id))
+  async function deleteLog(id){await supabase.from('coaching_log').delete().eq('id',id);setLogs(prev=>prev.filter(l=>l.id!==id))}
+  async function editarTarea(id,texto){
+    const{data}=await supabase.from('tareas').update({texto}).eq('id',id).select().single()
+    if(data)setTareas(prev=>prev.map(t=>t.id===id?data:t))
+    setEditTarea(null)
   }
-  function copyClientLink(){
-    const url=window.location.origin+'/?clienta='+c.id
-    navigator.clipboard.writeText(url).then(()=>{setCopied(true);setTimeout(()=>setCopied(false),2000)})
+  async function agregarTarea(){
+    if(!nuevaTarea.trim())return
+    const fase=c.fase_activa
+    const orden=tareas.filter(t=>t.fase===fase).length
+    if(aplicarA==='todas'){
+      const{data:otrasClientas}=await supabase.from('clientas').select('id').eq('fase_activa',fase).neq('id',c.id)
+      const extras=(otrasClientas||[]).map(x=>({clienta_id:x.id,fase,texto:nuevaTarea,completada:false,orden}))
+      if(extras.length)await supabase.from('tareas').insert(extras)
+    }
+    const{data}=await supabase.from('tareas').insert([{clienta_id:c.id,fase,texto:nuevaTarea,completada:false,orden}]).select().single()
+    if(data)setTareas(prev=>[...prev,data])
+    setNuevaTarea('')
   }
+  async function eliminarTarea(id){await supabase.from('tareas').delete().eq('id',id);setTareas(prev=>prev.filter(t=>t.id!==id))}
+  function copyClientLink(){const url=window.location.origin+'/?clienta='+c.id;navigator.clipboard.writeText(url).then(()=>{setCopied(true);setTimeout(()=>setCopied(false),2000)})}
 
   const tf=tareas.filter(t=>t.fase===c?.fase_activa)
   const pct=c?PCT[c.fase_activa]||0:0
   const fl=c?FL[c.fase_activa]||'':''
   const ini=c?(c.nombre.split(' ').map(p=>p[0]).slice(0,2).join('')).toUpperCase():''
   const sesComp=sesiones.filter(s=>s.estado==='Completada').length
-  const tarComp=tareas.filter(t=>t.completada).length
   const entComp=entregables.filter(e=>e.estado==='Listo').length
-  const progreso=Math.round((pct+(tf.length?tf.filter(t=>t.completada).length/tf.length*10:0)+(entregables.length?entregables.filter(e=>e.estado==='Listo').length/entregables.length*10:0))/1.2)
+  const progreso=Math.min(99,Math.round(pct+(tf.length?(tf.filter(t=>t.completada).length/tf.length)*12:0)+(entregables.length?(entregables.filter(e=>e.estado==='Listo').length/entregables.length)*8:0)))
+  const proxSesion=sesiones.find(s=>s.estado==='Proxima')
 
   if(loading&&view==='lista')return <div className='loading'>Cargando...</div>
-
   if(view==='lista')return(
     <div className='lista-view'>
-      <div className='lista-header'>
-        <div className='brand-big'>Clínica Escalable™</div>
-        <div className='brand-sub'>Portal de gestión de clientas</div>
-        <button className='btn-add' onClick={()=>setShowForm(true)}>+ Nueva clienta</button>
-      </div>
+      <div className='lista-header'><div className='brand-big'>Clínica Escalable™</div><div className='brand-sub'>Portal de gestión de clientas</div><button className='btn-add' onClick={()=>setShowForm(true)}>+ Nueva clienta</button></div>
       {showForm&&(<div className='modal-overlay'><div className='modal'>
         <div className='modal-title'>Nueva clienta</div>
         {['nombre','profesion','especialidad','pais'].map(k=>(<div key={k} className='form-group'><label>{k.charAt(0).toUpperCase()+k.slice(1)}</label><input value={form[k]} onChange={e=>setForm(p=>({...p,[k]:e.target.value}))}/></div>))}
@@ -175,27 +167,21 @@ export default function App(){
       </div>
     </div>
   )
-
   if(loading)return <div className='loading'>Cargando...</div>
   if(!c)return null
-
   return(<div className='layout'>
     <nav className='sidebar'>
       <div className='brand'>Clínica Escalable™<span>{IS_CLIENT_VIEW?'Tu programa':'Portal de clientas'}</span></div>
       {!IS_CLIENT_VIEW&&<button className='nav-back' onClick={()=>{setView('lista');setC(null);setNav('dashboard')}}>← Todas las clientas</button>}
       <div className='section-label'>Secciones</div>
-      {['dashboard','tareas','sesiones','entregables','log'].map(s=>(<button key={s} className={'nav-item'+(nav===s?' active':'')} onClick={()=>setNav(s)}>
-        {s==='dashboard'?'◈':s==='tareas'?'✦':s==='sesiones'?'◎':s==='entregables'?'◇':'📋'} {s==='log'?'Coaching Log':s.charAt(0).toUpperCase()+s.slice(1)}
-      </button>))}
+      {['dashboard','tareas','sesiones','entregables','log'].map(s=>(<button key={s} className={'nav-item'+(nav===s?' active':'')} onClick={()=>setNav(s)}>{s==='dashboard'?'◈':s==='tareas'?'✦':s==='sesiones'?'◎':s==='entregables'?'◇':'📋'} {s==='log'?'Coaching Log':s.charAt(0).toUpperCase()+s.slice(1)}</button>))}
       <div className='sidebar-bottom'>{IS_CLIENT_VIEW?'Tu progreso se actualiza en tiempo real':saving?'⏳ Guardando...':'✓ Guardado automático'}</div>
     </nav>
     <main className='main'>
       {!IS_CLIENT_VIEW&&editMode&&(<div className='edit-bar'>
-        <label>Fase:</label>
-        <select value={c.fase_activa} onChange={e=>cambiarFase(e.target.value)} disabled={saving}>{FASES.map(f=><option key={f} value={f}>{FL[f]}</option>)}</select>
+        <label>Fase:</label><select value={c.fase_activa} onChange={e=>cambiarFase(e.target.value)} disabled={saving}>{FASES.map(f=><option key={f} value={f}>{FL[f]}</option>)}</select>
         <button className='btn-session' onClick={avanzarSesion} disabled={saving}>✓ Completar sesión próxima</button>
-        <div className='flex1'/>
-        <button className='btn-green' onClick={()=>setEditMode(false)}>Cerrar edición</button>
+        <div className='flex1'/><button className='btn-green' onClick={()=>setEditMode(false)}>Cerrar edición</button>
       </div>)}
       <div className='topbar'>
         <div className='topbar-left'>
@@ -207,12 +193,23 @@ export default function App(){
           </div>
         </div>
         <div className='topbar-right'>
-          {!IS_CLIENT_VIEW&&(<>
-            <button className='btn-edit' onClick={()=>setEditMode(!editMode)}>{editMode?'Cerrar':'✏️ Editar'}</button>
-            <button className={'btn-copy-link'+(copied?' copied':'')} onClick={copyClientLink}>{copied?'✓ Link copiado':'🔗 Copiar link de clienta'}</button>
-          </>)}
+          {!IS_CLIENT_VIEW&&(<><button className='btn-edit' onClick={()=>setEditMode(!editMode)}>{editMode?'Cerrar':'✏️ Editar'}</button><button className={'btn-copy-link'+(copied?' copied':'')} onClick={copyClientLink}>{copied?'✓ Copiado':'🔗 Copiar link de clienta'}</button></>)}
         </div>
       </div>
+      {proxSesion&&(<div className={'prox-sesion-banner'+(IS_CLIENT_VIEW?' client-banner':'')}>
+        <div className='prox-info'>
+          <span className='prox-label'>📅 Próxima sesión</span>
+          <span className='prox-title'>Sesión {proxSesion.numero} — {proxSesion.titulo}</span>
+          {proxSesion.fecha_agendada&&<span className='prox-fecha'>{new Date(proxSesion.fecha_agendada+'T12:00:00').toLocaleDateString('es-MX',{weekday:'long',day:'numeric',month:'long'})} {proxSesion.hora&&'a las '+proxSesion.hora}</span>}
+          {!proxSesion.fecha_agendada&&!IS_CLIENT_VIEW&&<span className='prox-sin-fecha'>Sin fecha — agrégala abajo ↓</span>}
+          {!proxSesion.fecha_agendada&&IS_CLIENT_VIEW&&<span className='prox-sin-fecha'>Valeria te contactará pronto para agendar</span>}
+        </div>
+        <div className='prox-actions'>
+          {proxSesion.link_meet&&(<a href={proxSesion.link_meet} target='_blank' rel='noreferrer' className='btn-meet'>📹 Unirse a sesión</a>)}
+          {!IS_CLIENT_VIEW&&makeCalendarLink(proxSesion,c.nombre)&&(<a href={makeCalendarLink(proxSesion,c.nombre)} target='_blank' rel='noreferrer' className='btn-calendar'>📆 Agendar en Google Calendar</a>)}
+          {!IS_CLIENT_VIEW&&!proxSesion.fecha_agendada&&(<button className='btn-calendar-outline' onClick={()=>setNav('sesiones')}>+ Agregar fecha</button>)}
+        </div>
+      </div>)}
       <div className='progress-section'>
         <div className='progress-row'>
           <div className='progress-left'>
@@ -220,26 +217,50 @@ export default function App(){
             <div className='progress-track'><div className='progress-fill' style={{width:pct+'%'}}/></div>
             <div className='phase-pills'>{FASES.map((f,i)=>{const idx=FASES.indexOf(c.fase_activa);const cls=i<idx?'pill-done':i===idx?'pill-active':'pill-locked';return <div key={f} className={'phase-pill '+cls}><span className='pnum'>Fase {i+1}</span>{i>idx?'🔒 ':''}{['Análisis','Extracción','Arquitectura','Activación'][i]}</div>})}</div>
           </div>
-          <div className='progress-circle'>
-            <CircleProgress pct={progreso}/>
-            <div className='circle-label'>Progreso total</div>
-          </div>
+          <div className='progress-circle'><CircleProgress pct={progreso}/><div className='circle-label'>Progreso total</div></div>
         </div>
       </div>
       {nav==='dashboard'&&(<>
         <div className='metrics'>
           <div className='metric'><div className='metric-icon'>📅</div><div className='metric-label'>Sesiones</div><div className='metric-value'>{sesComp}<span className='metric-of'>/6</span></div></div>
           <div className='metric'><div className='metric-icon'>✅</div><div className='metric-label'>Tareas fase actual</div><div className='metric-value'>{tf.filter(t=>t.completada).length}<span className='metric-of'>/{tf.length}</span></div></div>
-          <div className='metric'><div className='metric-icon'>📄</div><div className='metric-label'>Entregables</div><div className='metric-value'>{entComp}<span className='metric-of'>/{entregables.length}</span></div></div>
+          <div className='metric'><div className='metric-icon'>📄</div><div className='metric-label'>Entregables listos</div><div className='metric-value'>{entComp}<span className='metric-of'>/{entregables.length}</span></div></div>
         </div>
         <div className='cols'>
           <div className='card'><div className='card-title'>Tareas — {fl.split('— ')[1]}</div><div className='task-list'>{tf.map(t=>(<div key={t.id} className={'task-item'+(IS_CLIENT_VIEW?'':' clickable')} onClick={()=>!IS_CLIENT_VIEW&&toggleTarea(t)}><div className={'task-check '+(t.completada?'check-done':'check-pending')}>{t.completada&&<Check/>}</div><div className='task-body'><div className={'task-text '+(t.completada?'done':'')}>{t.texto}</div>{t.nota&&<div className='task-note'>{t.nota}</div>}</div><span className={'task-badge badge-'+(t.completada?'green':'purple')}>{t.completada?'Lista':'Pendiente'}</span></div>))}</div></div>
-          <div className='card'><div className='card-title'>Sesiones</div><div className='session-list'>{sesiones.map(s=>(<div key={s.id} className='session-item'><div className={'session-dot '+(s.estado==='Completada'?'dot-done':s.estado==='Proxima'?'dot-next':'dot-pending')}/><div className='session-info'><div className={'session-title '+(s.estado==='Proxima'?'next':s.estado==='Pendiente'?'faint':'')}>Sesión {s.numero} — {s.titulo}</div><div className={'session-date '+(s.estado==='Proxima'?'next':'faint')}>{s.estado==='Completada'?'Completada':s.estado==='Proxima'?'Próxima — Por agendar':'Pendiente'}</div>{s.nota&&<div className='session-note-text'>{s.nota}</div>}</div></div>))}</div></div>
+          <div className='card'><div className='card-title'>Sesiones</div><div className='session-list'>{sesiones.map(s=>(<div key={s.id} className='session-item'><div className={'session-dot '+(s.estado==='Completada'?'dot-done':s.estado==='Proxima'?'dot-next':'dot-pending')}/><div className='session-info'><div className={'session-title '+(s.estado==='Proxima'?'next':s.estado==='Pendiente'?'faint':'')}>Sesión {s.numero} — {s.titulo}</div><div className={'session-date '+(s.estado==='Proxima'?'next':'faint')}>{s.estado==='Completada'?'Completada':s.estado==='Proxima'?'Próxima':'Pendiente'}{s.fecha_agendada&&' · '+new Date(s.fecha_agendada+'T12:00:00').toLocaleDateString('es-MX',{day:'numeric',month:'short'})}</div></div></div>))}</div></div>
         </div>
-        {!IS_CLIENT_VIEW&&(<div className='card'><div className='card-title'>Notas internas — se guardan automáticamente</div><textarea value={c.notas_internas||''} onChange={e=>handleNotaChange(e.target.value)} placeholder='Notas de sesión, observaciones, próximos pasos...'/></div>)}
+        {!IS_CLIENT_VIEW&&(<div className='card'><div className='card-title'>Notas internas — guardado automático</div><textarea value={c.notas_internas||''} onChange={e=>handleNotaChange(e.target.value)} placeholder='Notas de sesión, observaciones, próximos pasos...'/></div>)}
       </>)}
-      {nav==='tareas'&&(<div className='card full'><div className='card-title'>Tareas — {fl}</div><div className='task-list'>{tf.map(t=>(<div key={t.id} className={'task-item'+(IS_CLIENT_VIEW?'':' clickable')} onClick={()=>!IS_CLIENT_VIEW&&toggleTarea(t)}><div className={'task-check '+(t.completada?'check-done':'check-pending')}>{t.completada&&<Check/>}</div><div className='task-body'><div className={'task-text '+(t.completada?'done':'')}>{t.texto}</div>{t.nota&&<div className='task-note'>{t.nota}</div>}</div><span className={'task-badge badge-'+(t.completada?'green':'purple')}>{t.completada?'Lista':'Pendiente'}</span></div>))}</div><p className='phase-note'>Las fases se desbloquean al avanzar desde el modo Editar.</p></div>)}
-      {nav==='sesiones'&&(<div className='card full'><div className='card-title'>Sesiones del programa</div><div className='session-list'>{sesiones.map(s=>(<div key={s.id} className='session-item big'><div className={'session-dot '+(s.estado==='Completada'?'dot-done':s.estado==='Proxima'?'dot-next':'dot-pending')}/><div className='session-info'><div className={'session-title '+(s.estado==='Proxima'?'next':s.estado==='Pendiente'?'faint':'')}>Sesión {s.numero} — {s.titulo}</div><div className={'session-date '+(s.estado==='Proxima'?'next':'faint')}>{s.estado==='Completada'?'Completada':s.estado==='Proxima'?'Próxima — Por agendar':'Pendiente'}</div>{s.nota&&<div className='session-note-text'>{s.nota}</div>}</div></div>))}</div></div>)}
+      {nav==='tareas'&&(<div className='card full'>
+        <div className='card-title-row'><span className='card-title'>Tareas — {fl}</span></div>
+        <div className='task-list'>
+          {tf.map(t=>(<div key={t.id} className='task-item-edit'>
+            <div className={'task-check'+(IS_CLIENT_VIEW?'':' clickable')+' '+(t.completada?'check-done':'check-pending')} onClick={()=>!IS_CLIENT_VIEW&&toggleTarea(t)}>{t.completada&&<Check/>}</div>
+            {!IS_CLIENT_VIEW&&editTarea===t.id?(
+              <EditTareaInline texto={t.texto} onSave={txt=>editarTarea(t.id,txt)} onCancel={()=>setEditTarea(null)}/>
+            ):(<div className='task-body' style={{flex:1}}><div className={'task-text '+(t.completada?'done':'')}>{t.texto}</div>{t.nota&&<div className='task-note'>{t.nota}</div>}</div>)}
+            {!IS_CLIENT_VIEW&&editTarea!==t.id&&(<div className='task-edit-actions'><button className='btn-edit-tarea' onClick={()=>setEditTarea(t.id)}>✏️</button><button className='btn-del-tarea' onClick={()=>eliminarTarea(t.id)}>×</button></div>)}
+            <span className={'task-badge badge-'+(t.completada?'green':'purple')}>{t.completada?'Lista':'Pendiente'}</span>
+          </div>))}
+        </div>
+        {!IS_CLIENT_VIEW&&(<div className='nueva-tarea-box'>
+          <div className='nueva-tarea-title'>+ Agregar tarea</div>
+          <input className='nueva-tarea-input' value={nuevaTarea} onChange={e=>setNuevaTarea(e.target.value)} placeholder='Escribe la nueva tarea...' onKeyDown={e=>e.key==='Enter'&&agregarTarea()}/>
+          <div className='nueva-tarea-opciones'>
+            <label><input type='radio' name='aplica' value='solo' checked={aplicarA==='solo'} onChange={()=>setAplicarA('solo')}/> Solo para {c.nombre.split(' ')[0]}</label>
+            <label><input type='radio' name='aplica' value='todas' checked={aplicarA==='todas'} onChange={()=>setAplicarA('todas')}/> Para todas las clientas en {fl.split('— ')[1]||'esta fase'}</label>
+          </div>
+          <button className='btn-green' onClick={agregarTarea} disabled={!nuevaTarea.trim()}>Agregar tarea</button>
+        </div>)}
+        <p className='phase-note'>Las fases se desbloquean al avanzar desde el modo Editar.</p>
+      </div>)}
+      {nav==='sesiones'&&(<div className='card full'>
+        <div className='card-title'>Sesiones del programa</div>
+        <div className='session-list'>
+          {sesiones.map(s=>(<SesionItem key={s.id} s={s} isAdmin={!IS_CLIENT_VIEW} nombreClienta={c.nombre} onSave={guardarSesionFecha}/>))}
+        </div>
+      </div>)}
       {nav==='entregables'&&(<div className='card full'><div className='card-title-row'><span className='card-title'>Entregables del programa</span>{!IS_CLIENT_VIEW&&<span className='card-subtitle'>Edita estado y agrega links de Drive</span>}</div><div className='doc-list'>{entregables.map(e=>(<EntregableItem key={e.id} e={e} isAdmin={!IS_CLIENT_VIEW} onEstado={updateEntregableEstado} onUrl={saveEntregableUrl}/>))}</div></div>)}
       {nav==='log'&&(<div className='card full'>
         <div className='card-title-row'><span className='card-title'>Coaching Log</span>{!IS_CLIENT_VIEW&&<button className='btn-new-log' onClick={()=>setShowLogForm(true)}>+ Nueva sesión</button>}</div>
@@ -248,20 +269,16 @@ export default function App(){
             <div className='form-group'><label>Sesión #</label><input type='number' value={logForm.sesion_numero} onChange={e=>setLogForm(p=>({...p,sesion_numero:e.target.value}))} placeholder='4'/></div>
             <div className='form-group'><label>Fecha</label><input type='date' value={logForm.fecha} onChange={e=>setLogForm(p=>({...p,fecha:e.target.value}))}/></div>
           </div>
-          <div className='form-group'><label>Título de la sesión</label><input value={logForm.titulo} onChange={e=>setLogForm(p=>({...p,titulo:e.target.value}))} placeholder='Diseño de la oferta y precios'/></div>
-          <div className='form-group'><label>Link de Fathom (grabación)</label><input value={logForm.link_fathom} onChange={e=>setLogForm(p=>({...p,link_fathom:e.target.value}))} placeholder='https://fathom.video/...'/></div>
-          <div className='form-group'><label>Notas de la sesión</label><textarea value={logForm.notas} onChange={e=>setLogForm(p=>({...p,notas:e.target.value}))} placeholder='Qué se trabajó, decisiones clave, acuerdos...'/></div>
-          <div className='form-group'><label>Tareas extra (una por línea)</label><textarea value={logForm.tareas_extra} onChange={e=>setLogForm(p=>({...p,tareas_extra:e.target.value}))} placeholder='Revisar precios de competencia
-Actualizar avatar con nueva info'/></div>
+          <div className='form-group'><label>Título</label><input value={logForm.titulo} onChange={e=>setLogForm(p=>({...p,titulo:e.target.value}))} placeholder='Diseño de la oferta y precios'/></div>
+          <div className='form-group'><label>Link de Fathom</label><input value={logForm.link_fathom} onChange={e=>setLogForm(p=>({...p,link_fathom:e.target.value}))} placeholder='https://fathom.video/...'/></div>
+          <div className='form-group'><label>Notas</label><textarea value={logForm.notas} onChange={e=>setLogForm(p=>({...p,notas:e.target.value}))} placeholder='Qué se trabajó, decisiones, acuerdos...'/></div>
+          <div className='form-group'><label>Tareas extra (una por línea)</label><textarea value={logForm.tareas_extra} onChange={e=>setLogForm(p=>({...p,tareas_extra:e.target.value}))} placeholder='Revisar precios&#10;Actualizar avatar'/></div>
           <div className='modal-actions'><button className='btn-cancel' onClick={()=>setShowLogForm(false)}>Cancelar</button><button className='btn-green' onClick={guardarLog}>Guardar sesión</button></div>
         </div>)}
         <div className='logs-list'>
           {logs.length===0&&<div className='empty-state'>No hay sesiones registradas aún.</div>}
           {logs.map(l=>(<div key={l.id} className='log-item'>
-            <div className='log-header'>
-              <div className='log-title'>{l.sesion_numero?'Sesión '+l.sesion_numero+' — ':''}{l.titulo}</div>
-              <div className='log-meta'>{l.fecha&&<span>{l.fecha}</span>}{!IS_CLIENT_VIEW&&<button className='btn-del-log' onClick={()=>deleteLog(l.id)}>×</button>}</div>
-            </div>
+            <div className='log-header'><div className='log-title'>{l.sesion_numero?'Sesión '+l.sesion_numero+' — ':''}{l.titulo}</div><div className='log-meta'>{l.fecha&&<span>{l.fecha}</span>}{!IS_CLIENT_VIEW&&<button className='btn-del-log' onClick={()=>deleteLog(l.id)}>×</button>}</div></div>
             {l.link_fathom&&(<a href={l.link_fathom} target='_blank' rel='noreferrer' className='log-fathom'>▶ Ver grabación en Fathom</a>)}
             {l.notas&&(<div className='log-notas'>{l.notas}</div>)}
             {l.tareas_extra&&(<div className='log-tareas'><div className='log-tareas-title'>Tareas extra:</div>{l.tareas_extra.split('\n').filter(Boolean).map((t,i)=>(<div key={i} className='log-tarea-item'>◦ {t}</div>))}</div>)}
@@ -269,6 +286,50 @@ Actualizar avatar con nueva info'/></div>
         </div>
       </div>)}
     </main>
+  </div>)
+}
+
+function EditTareaInline({texto,onSave,onCancel}){
+  const [val,setVal]=useState(texto)
+  return(<div className='edit-tarea-inline'>
+    <input className='edit-tarea-input' value={val} onChange={e=>setVal(e.target.value)} autoFocus onKeyDown={e=>{if(e.key==='Enter')onSave(val);if(e.key==='Escape')onCancel()}}/>
+    <button className='btn-save-url' onClick={()=>onSave(val)}>Guardar</button>
+    <button className='btn-cancel-url' onClick={onCancel}>×</button>
+  </div>)
+}
+
+function SesionItem({s,isAdmin,nombreClienta,onSave}){
+  const [editing,setEditing]=useState(false)
+  const [fecha,setFecha]=useState(s.fecha_agendada||'')
+  const [hora,setHora]=useState(s.hora||'')
+  const [meet,setMeet]=useState(s.link_meet||'')
+  const calLink=makeCalendarLink({...s,fecha_agendada:fecha,hora,link_meet:meet},nombreClienta)
+  return(<div className='session-item big'>
+    <div className={'session-dot '+(s.estado==='Completada'?'dot-done':s.estado==='Proxima'?'dot-next':'dot-pending')}/>
+    <div className='session-info' style={{flex:1}}>
+      <div className={'session-title '+(s.estado==='Proxima'?'next':s.estado==='Pendiente'?'faint':'')}>Sesión {s.numero} — {s.titulo}</div>
+      <div className={'session-date '+(s.estado==='Proxima'?'next':'faint')}>
+        {s.estado==='Completada'?'Completada':s.estado==='Proxima'?'Próxima':'Pendiente'}
+        {s.fecha_agendada&&' · '+new Date(s.fecha_agendada+'T12:00:00').toLocaleDateString('es-MX',{weekday:'long',day:'numeric',month:'long'})}
+        {s.hora&&' a las '+s.hora}
+      </div>
+      {s.nota&&<div className='session-note-text'>{s.nota}</div>}
+      {s.link_meet&&!IS_CLIENT_VIEW&&<a href={s.link_meet} target='_blank' rel='noreferrer' className='log-fathom' style={{marginTop:'6px'}}>📹 Google Meet</a>}
+      {s.link_meet&&IS_CLIENT_VIEW&&<a href={s.link_meet} target='_blank' rel='noreferrer' className='btn-meet' style={{marginTop:'8px',display:'inline-flex'}}>📹 Unirse a la sesión</a>}
+      {isAdmin&&editing&&(<div className='sesion-edit-box'>
+        <div className='sesion-edit-row'>
+          <div className='form-group'><label>Fecha</label><input type='date' value={fecha} onChange={e=>setFecha(e.target.value)}/></div>
+          <div className='form-group'><label>Hora</label><input type='time' value={hora} onChange={e=>setHora(e.target.value)}/></div>
+        </div>
+        <div className='form-group'><label>Link de Google Meet</label><input value={meet} onChange={e=>setMeet(e.target.value)} placeholder='https://meet.google.com/...'/></div>
+        <div className='sesion-edit-actions'>
+          {calLink&&<a href={calLink} target='_blank' rel='noreferrer' className='btn-calendar'>📆 Crear en Google Calendar</a>}
+          <button className='btn-green' onClick={()=>{onSave(s.id,{fecha_agendada:fecha||null,hora:hora||null,link_meet:meet||null});setEditing(false)}}>Guardar</button>
+          <button className='btn-cancel' onClick={()=>setEditing(false)}>Cancelar</button>
+        </div>
+      </div>)}
+    </div>
+    {isAdmin&&s.estado!=='Completada'&&(<button className='btn-agenda' onClick={()=>setEditing(!editing)}>{editing?'Cerrar':'📅 Agendar'}</button>)}
   </div>)
 }
 
@@ -280,20 +341,11 @@ function EntregableItem({e,isAdmin,onEstado,onUrl}){
     <span className='doc-icon'>{e.icono}</span>
     <div className='doc-body'>
       <span className='doc-name'>{e.nombre}</span>
-      {isAdmin&&editing&&(<div className='url-edit'>
-        <input className='url-input' value={urlVal} onChange={ev=>setUrlVal(ev.target.value)} placeholder='Pega el link de Google Drive...'/>
-        <button className='btn-save-url' onClick={()=>{onUrl(e.id,urlVal);setEditing(false)}}>Guardar</button>
-        <button className='btn-cancel-url' onClick={()=>setEditing(false)}>Cancelar</button>
-      </div>)}
+      {isAdmin&&editing&&(<div className='url-edit'><input className='url-input' value={urlVal} onChange={ev=>setUrlVal(ev.target.value)} placeholder='Pega el link de Google Drive...'/><button className='btn-save-url' onClick={()=>{onUrl(e.id,urlVal);setEditing(false)}}>Guardar</button><button className='btn-cancel-url' onClick={()=>setEditing(false)}>Cancelar</button></div>)}
     </div>
     <div className='doc-actions'>
       {!bloqueado&&e.url&&(<a href={e.url} target='_blank' rel='noreferrer' className='btn-ver'>Ver documento →</a>)}
-      {isAdmin&&!bloqueado&&(<>
-        <button className='btn-link' onClick={()=>setEditing(!editing)}>{e.url?'Editar link':'+ Link Drive'}</button>
-        <select className='estado-select' value={e.estado} onChange={ev=>onEstado(e.id,ev.target.value)}>
-          {ESTADOS.map(s=><option key={s} value={s}>{s}</option>)}
-        </select>
-      </>)}
+      {isAdmin&&!bloqueado&&(<><button className='btn-link' onClick={()=>setEditing(!editing)}>{e.url?'Editar link':'+ Link Drive'}</button><select className='estado-select' value={e.estado} onChange={ev=>onEstado(e.id,ev.target.value)}>{ESTADOS.map(s=><option key={s} value={s}>{s}</option>)}</select></>)}
       {(!isAdmin||bloqueado)&&(<span className={'tag '+(e.estado==='Listo'?'tag-green':e.estado==='En curso'?'tag-purple':'tag-gray')}>{bloqueado?'🔒':e.estado}</span>)}
     </div>
   </div>)
