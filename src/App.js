@@ -206,11 +206,11 @@ function SesionItem({s,isAdmin,nombreClienta,emailClienta,onSave,onCompletar}){
   const esProxima=s.estado==='Proxima'
   return(<div className={'session-item big'+(esProxima?' proxima-item':'')}><div className={'session-dot '+(s.estado==='Completada'?'dot-done':esProxima?'dot-next':'dot-pending')}/><div className='session-info' style={{flex:1}}><div className={'session-title '+(esProxima?'next':s.estado==='Pendiente'?'faint':'')}>{s.numero}. {s.titulo}</div><div className={'session-date '+(esProxima?'next':'faint')}>{s.estado==='Completada'?'Completada':esProxima?'Próxima':'Pendiente'}{s.fecha_agendada&&<strong> · {new Date(s.fecha_agendada+'T12:00:00').toLocaleDateString('es-MX',{weekday:'short',day:'numeric',month:'long'})}</strong>}{s.hora&&<strong> {s.hora}</strong>}</div>{s.nota&&<div className='session-note-text'>{s.nota}</div>}{s.link_meet&&(<a href={s.link_meet} target='_blank' rel='noreferrer' className={isAdmin?'log-fathom':'btn-meet'} style={{marginTop:'6px',display:'inline-flex'}}>{isAdmin?'📹 Google Meet':'Unirse a la sesión'}</a>)}{isAdmin&&editing&&(<div className='sesion-edit-box'><div className='sesion-edit-row'><div className='form-group'><label>Fecha</label><input type='date' value={fecha} onChange={e=>setFecha(e.target.value)}/></div><div className='form-group'><label>Hora</label><input type='time' value={hora} onChange={e=>setHora(e.target.value)}/></div></div><div className='form-group'>
           <label>Link de Google Meet</label>
-          <div style={{display:'flex',gap:'8px',alignItems:'center',marginBottom:'6px'}}>
-            <a href='https://meet.new' target='_blank' rel='noreferrer' className='btn-create-meet'>+ Crear Google Meet</a>
-            <span style={{fontSize:'11px',color:'var(--text-faint)',fontStyle:'italic'}}>Copia el link y pégalo abajo</span>
+          <div className='meet-helper'>
+            <span className='meet-helper-text'>Genera el link en Google Calendar al crear el evento, o en:</span>
+            <a href='https://meet.google.com/' target='_blank' rel='noreferrer' className='btn-create-meet'>Ir a Google Meet →</a>
           </div>
-          <input value={meet} onChange={e=>setMeet(e.target.value)} placeholder='https://meet.google.com/...'/>
+          <input value={meet} onChange={e=>setMeet(e.target.value)} placeholder='https://meet.google.com/abc-defg-hij'/>
         </div><div className='sesion-edit-actions'>{calLink&&<a href={calLink} target='_blank' rel='noreferrer' className='btn-calendar'>Crear en Google Calendar</a>}<button className='btn-green' onClick={()=>{onSave(s.id,{fecha_agendada:fecha||null,hora:hora||null,link_meet:meet||null});setEditing(false)}}>Guardar</button><button className='btn-cancel' onClick={()=>setEditing(false)}>Cancelar</button></div></div>)}</div>{isAdmin&&s.estado!=='Completada'&&(<div className='sesion-actions'><button className={'btn-agenda-sesion'+(esProxima?' proxima':'')} onClick={()=>setEditing(!editing)}>{editing?'Cerrar':'Agendar'}</button>{esProxima&&<button className='btn-completar-sesion' onClick={()=>onCompletar(s)}>Completar</button>}</div>)}</div>)
 }
 
